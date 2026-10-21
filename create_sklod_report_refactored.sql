@@ -74,12 +74,13 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
 
   ---------------------------------------------------------------------------
   -- Конфигурация блоков отчета.
-  -- kind: 'T' = итоги по всем складам, 'S' = склады ЕКБ (ks2), 'R' = отдельный РЦ (rc_id).
-  -- tl_col: стартовая колонка блока в шапке; sdv_col: стартовая колонка блока данных.
-  -- order: порядок вывода (ord1 из исходного UNION ALL-курсорa).
-  -- ЗАМЕТКА: значения tl_col/sdv_col/width повторяют исходник дословно, включая
-  -- расхождения между ними (в оригинале блоки после ИТОГО частично не совпадают
-  -- с колонками данных — это историческое поведение, оставлено как есть).
+  -- kind: 'T' = итоги (ИТОГО / ИТОГИ РЦ ТЭЦ), 'S' = склады ЕКБ (ks2), 'R' = отдельный РЦ (rc_id).
+  -- tl_col: стартовая колонка блока в шапке; sdv_col: стартовая колонка блока данных;
+  -- span: величина p_br_col в mergecells первой строки (c + span);
+  -- ord: порядок вывода (ord1 из исходного UNION ALL-курсора).
+  -- ЗАМЕТКА: значения tl_col/sdv_col/span повторяют исходник дословно, включая
+  -- историческое расхождение: данные блока «РЦ ЕКАТЕРИНБУРГ+БЕРЕЗОВСКИЙ» пишутся
+  -- в колонку 13, а не 30 (sdv_col=30 в оригинале для id=2 недостижим).
   ---------------------------------------------------------------------------
   type t_block is record
     id      pls_integer;
@@ -88,7 +89,7 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
     rc_id   pls_integer;
     ord     pls_integer;
     tl_col  pls_integer;
-    width   pls_integer; -- ширина mergecells в первой строке (col1..colN)
+    span    pls_integer; -- приращение правой границы mergecells 1-й строки
     sdv_col pls_integer;
   end record;
   type t_blocks is table of t_block index by pls_integer;
@@ -96,47 +97,47 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
   c_blocks constant t_blocks := t_blocks
     ( 1 => t_block(id =>  1, name => 'ИТОГО',
                     kind => 'T', rc_id => null, ord =>  1,
-                    tl_col =>   4, width =>  10, sdv_col =>  23),
+                    tl_col =>   4, span =>  9, sdv_col =>  3),
       2 => t_block(id =>  2, name => 'РЦ ЕКАТЕРИНБУРГ + РЦ БЕРЕЗОВСКИЙ',
                     kind => 'T', rc_id => c_rc_ekb, ord =>  2,
-                    tl_col =>  14, width =>  10, sdv_col =>  30),
+                    tl_col =>  14, span =>  9, sdv_col => 13),
       3 => t_block(id =>  3, name => null, -- склады ЕКБ: имена берутся из dwh.monwms_facility_repnames
                     kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  24, width =>   7, sdv_col =>  37),
+                    tl_col =>  24, span =>   6, sdv_col =>  37),
       4 => t_block(id =>  4, name => null,
                     kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  31, width =>   7, sdv_col =>  44),
+                    tl_col =>  31, span =>   6, sdv_col =>  44),
       5 => t_block(id =>  5, name => null,
                     kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  38, width =>   7, sdv_col =>  51),
+                    tl_col =>  38, span =>   6, sdv_col =>  51),
       6 => t_block(id =>  6, name => null,
                     kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  45, width =>   7, sdv_col =>  58),
+                    tl_col =>  45, span =>   6, sdv_col =>  58),
       7 => t_block(id =>  7, name => 'РЦ УФА',
                     kind => 'R', rc_id => c_rc_ufa, ord =>  6,
-                    tl_col =>  52, width =>   7, sdv_col =>  65),
+                    tl_col =>  52, span =>   6, sdv_col =>  65),
       8 => t_block(id =>  8, name => 'РЦ НЕФТЕЮГАНСК',
                     kind => 'R', rc_id => c_rc_nfteyugansk, ord =>  8,
-                    tl_col =>  59, width =>   7, sdv_col =>  74),
+                    tl_col =>  59, span =>   6, sdv_col =>  74),
       9 => t_block(id =>  9, name => 'РЦ НОВОСИБИРСК',
                     kind => 'R', rc_id => c_rc_novosibirsk, ord => 10,
-                    tl_col =>  66, width =>   9, sdv_col =>  83),
+                    tl_col =>  66, span =>   8, sdv_col =>  83),
      10 => t_block(id => 10, name => 'РЦ ПЕРМЬ',
                     kind => 'R', rc_id => c_rc_perm, ord => 12,
-                    tl_col =>  75, width =>   9, sdv_col =>  92),
+                    tl_col =>  75, span =>   8, sdv_col =>  92),
      11 => t_block(id => 11, name => 'РЦ ЮЖНОУРАЛЬСК',
                     kind => 'R', rc_id => c_rc_kurgan, ord => 14,
-                    tl_col =>  84, width =>   9, sdv_col => 101),
+                    tl_col =>  84, span =>   8, sdv_col => 101),
      12 => t_block(id => 12, name => 'РЦ ПЕРМЬ2',
                     kind => 'R', rc_id => c_rc_perm2, ord => 16,
-                    tl_col =>  93, width =>   9, sdv_col => 110),
+                    tl_col =>  93, span =>   8, sdv_col => 110),
      13 => t_block(id => 13, name => 'РЦ ТЮМЕНЬ',
                     kind => 'R', rc_id => c_rc_tumen, ord => 18,
-                    tl_col => 102, width =>   9, sdv_col => 119));
+                    tl_col => 102, span =>   8, sdv_col => 119));
 
-  -- В исходнике список блоков формировался курсором на 15 позиций (два «пустых»
-  -- id = 14, 15 без имени). Сохранено для идентичности результата.
-  c_blocks_count constant pls_integer := 15;
+  -- В шапке исходника перебирались позиции курсора 1..15: блоки 14/15 — «пустые»
+  -- (имя null, недостижимые колонки 111/120) без данных. Сохранено для идентичности.
+  c_header_blocks constant pls_integer := 15;
 
   ---------------------------------------------------------------------------
   -- Переменные (соответствуют исходным)
