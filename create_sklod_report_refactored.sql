@@ -87,6 +87,7 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
     name    varchar2(100);
     kind    varchar2(1);
     rc_id   pls_integer;
+    ks2     pls_integer; -- номер склада внутри ЕКБ (для kind='S')
     ord     pls_integer;
     tl_col  pls_integer;
     span    pls_integer; -- приращение правой границы mergecells 1-й строки
@@ -94,50 +95,50 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
   end record;
   type t_blocks is table of t_block index by pls_integer;
 
+  -- Ключи таблицы = позиционные id исходного курсора (rownum после сортировки).
   c_blocks constant t_blocks := t_blocks
     ( 1 => t_block(id =>  1, name => 'ИТОГО',
-                    kind => 'T', rc_id => null, ord =>  1,
+                    kind => 'T', rc_id => null, ks2 => null, ord =>  1,
                     tl_col =>   4, span =>  9, sdv_col =>  3),
       2 => t_block(id =>  2, name => 'РЦ ЕКАТЕРИНБУРГ + РЦ БЕРЕЗОВСКИЙ',
-                    kind => 'T', rc_id => c_rc_ekb, ord =>  2,
+                    kind => 'T', rc_id => c_rc_ekb, ks2 => null, ord =>  2,
                     tl_col =>  14, span =>  9, sdv_col => 13),
       3 => t_block(id =>  3, name => null, -- склады ЕКБ: имена берутся из dwh.monwms_facility_repnames
-                    kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  24, span =>   6, sdv_col =>  37),
+                    kind => 'S', rc_id => c_rc_ekb, ks2 => 1, ord =>  3,
+                    tl_col =>  24, span =>   6, sdv_col => 23),
       4 => t_block(id =>  4, name => null,
-                    kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  31, span =>   6, sdv_col =>  44),
+                    kind => 'S', rc_id => c_rc_ekb, ks2 => 2, ord =>  3,
+                    tl_col =>  31, span =>   6, sdv_col => 30),
       5 => t_block(id =>  5, name => null,
-                    kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  38, span =>   6, sdv_col =>  51),
+                    kind => 'S', rc_id => c_rc_ekb, ks2 => 3, ord =>  3,
+                    tl_col =>  38, span =>   6, sdv_col => 37),
       6 => t_block(id =>  6, name => null,
-                    kind => 'S', rc_id => c_rc_ekb, ord =>  3,
-                    tl_col =>  45, span =>   6, sdv_col =>  58),
+                    kind => 'S', rc_id => c_rc_ekb, ks2 => 4, ord =>  3,
+                    tl_col =>  45, span =>   6, sdv_col => 44),
       7 => t_block(id =>  7, name => 'РЦ УФА',
-                    kind => 'R', rc_id => c_rc_ufa, ord =>  6,
-                    tl_col =>  52, span =>   6, sdv_col =>  65),
+                    kind => 'R', rc_id => c_rc_ufa, ks2 => null, ord =>  6,
+                    tl_col =>  52, span =>   6, sdv_col => 51),
       8 => t_block(id =>  8, name => 'РЦ НЕФТЕЮГАНСК',
-                    kind => 'R', rc_id => c_rc_nfteyugansk, ord =>  8,
-                    tl_col =>  59, span =>   6, sdv_col =>  74),
+                    kind => 'R', rc_id => c_rc_nfteyugansk, ks2 => null, ord =>  8,
+                    tl_col =>  59, span =>   6, sdv_col => 58),
       9 => t_block(id =>  9, name => 'РЦ НОВОСИБИРСК',
-                    kind => 'R', rc_id => c_rc_novosibirsk, ord => 10,
-                    tl_col =>  66, span =>   8, sdv_col =>  83),
+                    kind => 'R', rc_id => c_rc_novosibirsk, ks2 => null, ord => 10,
+                    tl_col =>  66, span =>   8, sdv_col => 65),
      10 => t_block(id => 10, name => 'РЦ ПЕРМЬ',
-                    kind => 'R', rc_id => c_rc_perm, ord => 12,
-                    tl_col =>  75, span =>   8, sdv_col =>  92),
+                    kind => 'R', rc_id => c_rc_perm, ks2 => null, ord => 12,
+                    tl_col =>  75, span =>   8, sdv_col => 74),
      11 => t_block(id => 11, name => 'РЦ ЮЖНОУРАЛЬСК',
-                    kind => 'R', rc_id => c_rc_kurgan, ord => 14,
-                    tl_col =>  84, span =>   8, sdv_col => 101),
+                    kind => 'R', rc_id => c_rc_kurgan, ks2 => null, ord => 14,
+                    tl_col =>  84, span =>   8, sdv_col => 83),
      12 => t_block(id => 12, name => 'РЦ ПЕРМЬ2',
-                    kind => 'R', rc_id => c_rc_perm2, ord => 16,
-                    tl_col =>  93, span =>   8, sdv_col => 110),
+                    kind => 'R', rc_id => c_rc_perm2, ks2 => null, ord => 16,
+                    tl_col =>  93, span =>   8, sdv_col => 92),
      13 => t_block(id => 13, name => 'РЦ ТЮМЕНЬ',
-                    kind => 'R', rc_id => c_rc_tumen, ord => 18,
-                    tl_col => 102, span =>   8, sdv_col => 119));
+                    kind => 'R', rc_id => c_rc_tumen, ks2 => null, ord => 18,
+                    tl_col => 102, span =>   8, sdv_col => 101));
 
-  -- В шапке исходника перебирались позиции курсора 1..15: блоки 14/15 — «пустые»
-  -- (имя null, недостижимые колонки 111/120) без данных. Сохранено для идентичности.
-  c_header_blocks constant pls_integer := 15;
+  -- Количество блоков конфигурации (= максимальный id исходного курсора складов).
+  c_blocks_count constant pls_integer := 13;
 
   ---------------------------------------------------------------------------
   -- Переменные (соответствуют исходным)
@@ -180,6 +181,49 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
     when others then return -1; -- как в оригинале: неизвестный id => -1
   end block_tl_col;
 
+  -- Смещения строк внутри месяца (используются в заголовке блока «ДАТЫ» и в
+  -- подстановке p_sdvig_row). В исходнике эти величины вычислялись, но никогда
+  -- не использовались по назначению: err всегда = 0, e присваивалось 0/1/2 и
+  -- дальше не читалось. Переменные сохранены для идентичности кода.
+  function month_row_sdv(p_month_delta in pls_integer, p_prev_cnt in pls_integer,
+                         p_total_cnt   in pls_integer, p_err in pls_integer)
+    return pls_integer is
+  begin
+    return c_header_rows + 4 * p_month_delta + p_total_cnt - p_prev_cnt - p_err;
+  end month_row_sdv;
+
+  function day_row_sdv(p_month_delta in pls_integer, p_total_cnt in pls_integer,
+                       p_prev_cnt in pls_integer, p_err in pls_integer)
+    return pls_integer is
+  begin
+    return c_header_rows + 4 * p_month_delta + (p_total_cnt - p_prev_cnt) - p_err;
+  end day_row_sdv;
+
+  -- Заголовок строки статистики («Минимум», «Среднее», ...) с заливкой и шрифтом.
+  -- В исходнике у подписей задавались только p_value/p_fillId — стиль сохранен.
+  procedure stat_label(p_sheet in integer, p_row in pls_integer,
+                       p_col in pls_integer, p_text in varchar2,
+                       p_rgb in varchar2) is
+  begin
+    as_xlsx.cell(p_col    => p_col,
+                 p_row    => p_row,
+                 p_sheet  => p_sheet,
+                 p_value  => p_text,
+                 p_fillId => as_xlsx.get_fill('solid', p_fgRGB => p_rgb));
+  end stat_label;
+
+  -- Оформление строки статистики (заливка/шрифт/рамка всей строки)
+  procedure stat_row_style(p_sheet in integer, p_row in pls_integer,
+                           p_rgb in varchar2) is
+  begin
+    as_xlsx.set_row(p_sheet    => p_sheet,
+                    p_row      => p_row,
+                    p_fillId   => as_xlsx.get_fill('solid', p_fgRGB => p_rgb),
+                    p_fontId   => as_xlsx.get_font(c_font_stat, p_fontsize => c_fs_hdr,
+                                                   p_bold => TRUE),
+                    p_borderId => as_xlsx.get_border());
+  end stat_row_style;
+
   -- Смещение блока данных по колонкам (замена второй case-простыни)
   function block_sdv_col(p_id in pls_integer) return pls_integer is
   begin
@@ -187,6 +231,14 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
   exception
     when others then return -1;
   end block_sdv_col;
+
+  -- Номер склада внутри ЕКБ (ks2) для блоков kind='S'
+  function block_ks2(p_id in pls_integer) return pls_integer is
+  begin
+    return c_blocks(p_id).ks2;
+  exception
+    when others then return null;
+  end block_ks2;
 
   -- Цвет фона блока: серые для первых двух (ИТОГО, РЦ ЕКБ), иначе голубой
   function block_rgb(p_id in pls_integer) return varchar2 is
@@ -197,6 +249,19 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
       return c_rgb_default;
     end if;
   end block_rgb;
+
+  -- Тип блока по позиции курсора шапки. В исходнике тип выводился из позиции id,
+  -- а не из имени: склады ЕКБ занимают позиции 3..6, региональные РЦ — 7..13.
+  function header_block_kind(p_id in pls_integer) return varchar2 is
+  begin
+    if p_id <= 2 then
+      return c_blocks(p_id).kind; -- 'T' (позиции задаются записями до UNION ALL)
+    elsif p_id between 3 and 6 then
+      return 'S';                 -- склады ЕКБ (ord1 = 3)
+    else
+      return 'R';                 -- региональные РЦ (остальные ord1)
+    end if;
+  end header_block_kind;
 
   -- Тип блока (для блоков вне таблицы — 'R', как у «пустых» id 14/15 в исходном курсоре)
   function block_kind(p_id in pls_integer) return varchar2 is
@@ -257,6 +322,22 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
                  p_borderId  => as_xlsx.get_border());
   end hdr_cell;
 
+  -- То же, но для числового значения (годы в шапке — как в оригинале: p_value => py/cy)
+  procedure hdr_cell(p_col in pls_integer, p_row in pls_integer, p_sheet in integer,
+                     p_value in number, p_rgb in varchar2) is
+  begin
+    as_xlsx.cell(p_col       => p_col,
+                 p_row       => p_row,
+                 p_sheet     => p_sheet,
+                 p_value     => p_value,
+                 p_alignment => as_xlsx.get_alignment(p_horizontal => c_horz_center,
+                                                      p_vertical   => c_vert_center),
+                 p_fillId    => as_xlsx.get_fill('solid', p_fgRGB => p_rgb),
+                 p_fontId    => as_xlsx.get_font(c_font_hdr, p_fontsize => c_fs_hdr,
+                                                 p_bold => TRUE),
+                 p_borderId  => as_xlsx.get_border());
+  end hdr_cell;
+
   -- Пустая ячейка-«заглушка» только с рамкой (для склейки объединенных диапазонов)
   procedure blank_cell(p_col in pls_integer, p_row in pls_integer, p_sheet in integer) is
   begin
@@ -283,7 +364,8 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
                  p_borderId  => as_xlsx.get_border());
   end blank_filled_cell;
 
-  -- Объединение диапазона [p_from .. p_to] в строке p_row (порядок аргументов как в оригинале)
+  -- Объединение диапазона [p_tl_col .. p_tl_col + p_span] в строке p_row
+  -- (порядок и состав аргументов как в оригинале)
   procedure merge_hdr(p_tl_col in pls_integer, p_span in pls_integer,
                       p_row in pls_integer, p_sheet in integer) is
   begin
@@ -293,6 +375,17 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
                        p_br_row => p_row,
                        p_sheet  => p_sheet);
   end merge_hdr;
+
+  -- Строка месяца: объединение колонок года/месяца на всю высоту блока месяца
+  procedure merge_month_col(p_col in pls_integer, p_tl_row in pls_integer,
+                            p_sheet in integer) is
+  begin
+    as_xlsx.mergecells(p_tl_col => p_col,
+                       p_br_col => p_col,
+                       p_tl_row => p_tl_row,
+                       p_br_row => p_tl_row + 3,
+                       p_sheet  => p_sheet);
+  end merge_month_col;
 
   ---------------------------------------------------------------------------
   -- Построение SQL-фрагментов (устранена копипаста одинаковых подзапросов)
@@ -535,59 +628,80 @@ begin
                                p_width => col_width(c, l));
     end loop;
 
-    --ШАПКА (лист 1)
+    --ШАПКА (лист 1). Позиции блоков (id) соответствуют исходному курсору:
+    -- id 1..2 — итоги из c_blocks, id 3..6 — склады ЕКБ из dwh.monwms_facility_repnames,
+    -- id 7..13 — региональные РЦ из c_blocks.
     if l = 1 then
-      for p_id in 1 .. c_blocks_count loop
-        v_blk := c_blocks(p_id);
+      for p in (select rownum id, t_name
+                  from (select t_name
+                          from (select 3 ord1, rownum ord2, t_name
+                                  from (select t.rep_name as t_name
+                                          from dwh.monwms_facility_repnames t
+                                         where t.physical_wh_id = c_wh_physical
+                                           and t.rep_name <> 'СУПЕР'
+                                         order by t.ord_num)
+                                union all
+                                select b.ord, 1, b.name
+                                  from (select c_blocks(level).ord ord,
+                                               c_blocks(level).name name
+                                          from dual
+                                       connect by level <= c_blocks_count) b
+                                 where b.name is not null)
+                         order by ord1, ord2))
+      loop
+        v_blk := c_blocks(p.id);
 
-        c   := block_tl_col(p_id);
-        rgb := block_rgb(p_id);
+        c   := block_tl_col(p.id);
+        rgb := block_rgb(p.id);
 
         --объединение ячеек в первой строке шапки
-        merge_hdr(c, v_blk.width - 1, 1, l);
+        merge_hdr(c, v_blk.span, 1, l);
         blank_cell(c + 1, 1, l);
         blank_cell(c + 2, 1, l);
         blank_cell(c + 3, 1, l);
-        if p_id >= 9 then -- заглушка над блоками «РЦ ...»
+        if p.id >= 9 then -- заглушка над блоками «РЦ ...»
           blank_cell(c + 8, 1, l);
         end if;
-        if p_id in (1, 2) then -- дополнительные заглушки для ИТОГО/РЦ ЕКБ
+        if p.id in (1, 2) then -- дополнительные заглушки для ИТОГО/РЦ ЕКБ
           blank_cell(c + 8, 1, l);
           blank_cell(c + 9, 1, l);
         end if;
 
         -- первая строчка шапки: название блока
-        hdr_cell(c, 1, l, v_blk.name, rgb);
+        hdr_cell(c, 1, l, p.t_name, rgb);
 
         -- третья строчка шапки: годы/LFL/НЗ
-        hdr_cell(c,     3, l, to_char(py), rgb);
-        hdr_cell(c + 1, 3, l, to_char(cy), rgb);
+        hdr_cell(c,     3, l, py, rgb);
+        hdr_cell(c + 1, 3, l, cy, rgb);
 
-        if p_id not in (1, 2, 9, 10, 11, 12, 13, 14, 15) then
-          -- обычный блок (склады ЕКБ и РЦ УФА/НЕФТЕЮГАНСК): два года подряд + НЗ
-          hdr_cell(c + 2, 3, l, to_char(py), rgb);
-          hdr_cell(c + 3, 3, l, to_char(cy), rgb);
-          hdr_cell(c + 4, 3, l, to_char(py), rgb);
-          hdr_cell(c + 5, 3, l, to_char(cy), rgb);
-          if p_id > 2 then
-            hdr_cell(c + 6, 3, l, c_lbl_nz, rgb);
-          end if;
-        else
-          -- итоги и региональные РЦ: LFL-колонки
-          hdr_cell(c + 2, 3, l, c_lbl_lfl, rgb);
-          hdr_cell(c + 3, 3, l, to_char(py), rgb);
-          hdr_cell(c + 4, 3, l, to_char(cy), rgb);
+        if header_block_kind(p.id) = 'T' then
+          -- итоги: два года, LFL, два года, LFL и НЗ (LFL в c+2 — ниже, общая ветка)
+          hdr_cell(c + 3, 3, l, py, rgb);
+          hdr_cell(c + 4, 3, l, cy, rgb);
           hdr_cell(c + 5, 3, l, c_lbl_lfl, rgb);
-          hdr_cell(c + 6, 3, l, to_char(py), rgb);
-          hdr_cell(c + 7, 3, l, to_char(cy), rgb);
+          hdr_cell(c + 7, 3, l, cy, rgb);
           hdr_cell(c + 8, 3, l, c_lbl_lfl, rgb);
-          if p_id in (1, 2) then
-            hdr_cell(c + 9, 3, l, c_lbl_nz, rgb);
-          end if;
+          hdr_cell(c + 9, 3, l, c_lbl_nz, rgb);
+        else
+          -- склады ЕКБ и региональные РЦ: вторая пара лет в c+4/c+5
+          hdr_cell(c + 4, 3, l, py, rgb);
+          hdr_cell(c + 5, 3, l, cy, rgb);
+        end if;
+        -- LFL первой метрики — у всех широких блоков (ИТОГО/РЦ ЕКБ и региональные РЦ)
+        if header_block_kind(p.id) in ('T', 'R') then
+          hdr_cell(c + 2, 3, l, c_lbl_lfl, rgb);
+        end if;
+        -- «костыль на АБЛ»: первая пара лет в c+3 для складов ЕКБ и ИТОГОВ;
+        -- НЗ в c+6 у всех id>2 (перезаписывает год/LFL исходника — как в оригинале)
+        if p.id < 7 then
+          hdr_cell(c + 3, 3, l, py, rgb);
+        end if;
+        if p.id > 2 then
+          hdr_cell(c + 6, 3, l, c_lbl_nz, rgb);
         end if;
 
         -- ВТОРАЯ СТРОКА ШАПКИ
-        if p_id in (1, 2, 9, 10, 11, 12, 13, 14, 15) then
+        if header_block_kind(p.id) in ('T', 'R') then
           -- широкие блоки (3 колонки на метрику)
           merge_hdr(c,     2, 2, l);
           blank_cell(c + 1, 2, l);
@@ -601,7 +715,7 @@ begin
           blank_cell(c + 7, 2, l);
           blank_cell(c + 8, 2, l);
           hdr_cell(c + 6, 2, l, c_lbl_summ, rgb);
-          if p_id in (1, 2) then -- загрушка над НЗ
+          if header_block_kind(p.id) = 'T' then -- загрушка над НЗ
             blank_filled_cell(c + 9, 2, l, rgb);
           end if;
         else
@@ -671,8 +785,8 @@ begin
          and rownum = 1;
 
       -- объединение колонок года/месяца на всю высоту месяца
-      merge_hdr(c_year_col,  0, c_header_rows + sdv_row_global + 4 * (i - 1) + 4 - err, l);
-      merge_hdr(c_month_col, 0, c_header_rows + sdv_row_global + 4 * (i - 1) + 4 - err, l);
+      merge_month_col(c_year_col,  c_header_rows + sdv_row_global + 4 * (i - 1) + 1 - err, l);
+      merge_month_col(c_month_col, c_header_rows + sdv_row_global + 4 * (i - 1) + 1 - err, l);
 
       --год
       as_xlsx.cell(p_col       => c_year_col,
@@ -894,10 +1008,10 @@ left join (select t_date,sum(nvl(pallet,0)) pallet
       end if; -- l = 1 (ИТОГИ)
 
 -------------------------------------------------------------------------------------------------------------------------------------------
-      --ПОШЛИ СКЛАДЫ (блоки 3..15: склады ЕКБ по ks2 и отдельные РЦ по rc_id).
+      --ПОШЛИ СКЛАДЫ (позиции 3..13 исходного курсора: склады ЕКБ по ks2 и РЦ по rc_id).
       -- Порядок позиций повторяет исходный курсор: сначала склады из
       -- dwh.monwms_facility_repnames (позиции 3..6), затем блоки-РЦ из конфигурации
-      -- c_blocks в порядке их ord (позиции 7..13), затем «пустые» позиции 14/15.
+      -- c_blocks в порядке их ord (позиции 7..13).
       for p in (with wh as (
                  select rownum rn, t.rep_name t_name
                    from (select t.rep_name
@@ -922,14 +1036,14 @@ left join (select t_date,sum(nvl(pallet,0)) pallet
                  order by ord1, ord2)
         loop
           ------------------------------------------------------
-          -- склады - СУХОЙ,ХОЛОД,АЛКО,ОВОЩИ,СРЕДНИЙ,ПРОМ - не рц
+          -- склады - СУХОЙ,ХОЛОД,АЛКО,ОВОЩИ - не рц
           if block_kind(p.id) = 'S' then
             e := 0;
             ssql := ' from(
 select v.tran_date,nvl(b.pallet,0) "p.' || py || '", nvl(a.pallet,0) "p.' || cy || '",nvl(b.totalsum,0)/nullif(nvl(b.pallet,0),0) "t.' || py || '", nvl(a.totalsum,0)/nullif(nvl(a.pallet,0),0) "t.' || cy || '",
 nvl(b.totalsum,0) "sssum' || py || '", nvl(a.totalsum,0) "sssum' || cy || '", c.pallet nz from t_dates v
-left join (' || sql_agg_ekb(i, p.id) || ') a on a.t_date=v.tran_date
-left join (' || sql_agg_ekb(i, p.id) || ') b on add_months(v.tran_date,-12)=b.t_date
+left join (' || sql_agg_ekb(i, block_ks2(p.id)) || ') a on a.t_date=v.tran_date
+left join (' || sql_agg_ekb(i, block_ks2(p.id)) || ') b on add_months(v.tran_date,-12)=b.t_date
 left join (select t_date,sum(nvl(pallet,0)) pallet
                   from dwh.oracle_sklod_nz where t_name =''' || p.t_name || ''' and to_number(to_char(t_date,''mm''))=' || i || ' group by t_date) c on c.t_date=v.tran_date
 ' || sql_tail(i);
