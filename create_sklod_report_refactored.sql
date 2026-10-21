@@ -170,7 +170,7 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
   v_blk          t_block;
 
   ---------------------------------------------------------------------------
-  -- Вспомогательные функции
+  -- Вспомогательные функции и процедуры
   ---------------------------------------------------------------------------
 
   -- Стартовая колонка блока в шапке (замена case-простыни из исходника)
@@ -180,49 +180,6 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
   exception
     when others then return -1; -- как в оригинале: неизвестный id => -1
   end block_tl_col;
-
-  -- Смещения строк внутри месяца (используются в заголовке блока «ДАТЫ» и в
-  -- подстановке p_sdvig_row). В исходнике эти величины вычислялись, но никогда
-  -- не использовались по назначению: err всегда = 0, e присваивалось 0/1/2 и
-  -- дальше не читалось. Переменные сохранены для идентичности кода.
-  function month_row_sdv(p_month_delta in pls_integer, p_prev_cnt in pls_integer,
-                         p_total_cnt   in pls_integer, p_err in pls_integer)
-    return pls_integer is
-  begin
-    return c_header_rows + 4 * p_month_delta + p_total_cnt - p_prev_cnt - p_err;
-  end month_row_sdv;
-
-  function day_row_sdv(p_month_delta in pls_integer, p_total_cnt in pls_integer,
-                       p_prev_cnt in pls_integer, p_err in pls_integer)
-    return pls_integer is
-  begin
-    return c_header_rows + 4 * p_month_delta + (p_total_cnt - p_prev_cnt) - p_err;
-  end day_row_sdv;
-
-  -- Заголовок строки статистики («Минимум», «Среднее», ...) с заливкой и шрифтом.
-  -- В исходнике у подписей задавались только p_value/p_fillId — стиль сохранен.
-  procedure stat_label(p_sheet in integer, p_row in pls_integer,
-                       p_col in pls_integer, p_text in varchar2,
-                       p_rgb in varchar2) is
-  begin
-    as_xlsx.cell(p_col    => p_col,
-                 p_row    => p_row,
-                 p_sheet  => p_sheet,
-                 p_value  => p_text,
-                 p_fillId => as_xlsx.get_fill('solid', p_fgRGB => p_rgb));
-  end stat_label;
-
-  -- Оформление строки статистики (заливка/шрифт/рамка всей строки)
-  procedure stat_row_style(p_sheet in integer, p_row in pls_integer,
-                           p_rgb in varchar2) is
-  begin
-    as_xlsx.set_row(p_sheet    => p_sheet,
-                    p_row      => p_row,
-                    p_fillId   => as_xlsx.get_fill('solid', p_fgRGB => p_rgb),
-                    p_fontId   => as_xlsx.get_font(c_font_stat, p_fontsize => c_fs_hdr,
-                                                   p_bold => TRUE),
-                    p_borderId => as_xlsx.get_border());
-  end stat_row_style;
 
   -- Смещение блока данных по колонкам (замена второй case-простыни)
   function block_sdv_col(p_id in pls_integer) return pls_integer is
@@ -534,40 +491,40 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
 
   ---------------------------------------------------------------------------
   -- Генерация полного набора текстов запросов блока (all/min/avg/max/sum).
-  -- kind: 'W' = широкий блок с LFL и колонкой НЗ (ИТОГИ, ИТОГИ РЦ ТЭЦ);
-  --       'N' = узкий блок складов ЕКБ (без LFL, с НЗ);
-  --       'R' = региональный РЦ (с LFL, без НЗ).
-  -- p_*_cur/p_*_prev — оформленные ссылки на колонки текущего/прошлого года.
+  -- kind: 'W' = широкий блок с LFL-колонками (ИТОГИ, ИТОГИ РЦ ТЭЦ, региональные РЦ);
+  --       'N' = узкий блок складов ЕКБ (без LFL).
+  -- p_*_cur/p_*_prev — оформленные ссылки на колонки текущего/прошлого года;
+  -- p_nz = null => колонки НЗ нет (региональные РЦ).
   ---------------------------------------------------------------------------
-  procedure build_stats_sql(p_kind     in varchar2,
+  procedure build_stats_sql(p_kind       in varchar2,
                             p_pallet_cur in varchar2, p_pallet_prev in varchar2,
                             p_ss_cur     in varchar2, p_ss_prev     in varchar2,
                             p_sum_cur    in varchar2, p_sum_prev    in varchar2,
                             p_nz         in varchar2 default null) is
+    v_nz_sep  varchar2(100) := case when p_nz is not null then ', ' || p_nz end;
   begin
     if p_kind = 'N' then
+      -- узкий блок складов: без LFL-колонок (как в исходнике)
       ssql_all := 'select ' || p_pallet_prev || ', ' || p_pallet_cur || ', '
                   || p_ss_prev || ', ' || p_ss_cur || ', '
-                  || p_sum_prev || ', ' || p_sum_cur || ', ' || p_nz || ssql;
+                  || p_sum_prev || ', ' || p_sum_cur || v_nz_sep || ssql;
       ssql_min := plain_agg('min', p_pallet_cur, p_pallet_prev, p_ss_cur, p_ss_prev,
                             p_sum_cur, p_sum_prev, p_nz) || ssql;
       ssql_avg := plain_agg('avg', p_pallet_cur, p_pallet_prev, p_ss_cur, p_ss_prev,
                             p_sum_cur, p_sum_prev, p_nz) || ssql;
       ssql_max := plain_agg('max', p_pallet_cur, p_pallet_prev, p_ss_cur, p_ss_prev,
                             p_sum_cur, p_sum_prev, p_nz) || ssql;
-      ssql_sum := 'select sum(' || p_pallet_prev || '), sum(' || p_pallet_cur || '), '
-                  || 'avg(' || p_ss_prev || '), avg(' || p_ss_cur || '), '
-                  || 'sum(' || p_sum_prev || '), sum(' || p_sum_cur || '), '
-                  || 'sum(' || p_nz || ')' || ssql;
+      ssql_sum := sum_cols(p_pallet_cur, p_pallet_prev, p_ss_cur, p_ss_prev,
+                           p_sum_cur, p_sum_prev, p_nz) || ssql;
     else
+      -- широкий блок: построчный LFL в «все» и LFL по агрегатам в мин/средн/макс/сумма
       ssql_all := 'select ' || p_pallet_prev || ', ' || p_pallet_cur || ', '
                   || ratio_expr(p_pallet_cur, p_pallet_prev) || ', '
                   || p_ss_prev || ', ' || p_ss_cur || ', '
                   || ratio_expr(p_ss_cur, p_ss_prev) || ', '
                   || p_sum_prev || ', ' || p_sum_cur || ', '
                   || ratio_expr(p_sum_cur, p_sum_prev)
-                  || case when p_nz is not null then ', ' || p_nz end
-                  || ssql;
+                  || v_nz_sep || ssql;
       ssql_min := stat_cols('min', p_pallet_cur, p_pallet_prev, p_ss_cur, p_ss_prev,
                             p_sum_cur, p_sum_prev, p_nz) || ssql;
       ssql_avg := stat_cols('avg', p_pallet_cur, p_pallet_prev, p_ss_cur, p_ss_prev,
@@ -580,7 +537,30 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
   end build_stats_sql;
 
   ---------------------------------------------------------------------------
-  -- Выгрузка блока из четырех запросов статистики в лист
+  -- Стили строк статистики месяца («Минимум/Среднее/Максимум/Сумма») —
+  -- вычисляются один раз на весь прогон (get_fill/get_font/get_border просто
+  -- возвращают id настройки, повторные вызовы избыточны).
+  ---------------------------------------------------------------------------
+  type t_stat_style is record
+    fill_id   pls_integer;
+    font_id   pls_integer;
+    border_id pls_integer;
+    rgb       varchar2(10);
+    label     varchar2(30);
+  end record;
+  type t_stat_styles is table of t_stat_style index by pls_integer;
+  c_stat_styles constant t_stat_styles := t_stat_styles
+    (1 => t_stat_style(fill_id => null, font_id => null, border_id => null,
+                       rgb => c_rgb_all, label => c_lbl_min),
+     2 => t_stat_style(rgb => c_rgb_avg, label => c_lbl_avg),
+     3 => t_stat_style(rgb => c_rgb_max, label => c_lbl_max),
+     4 => t_stat_style(rgb => c_rgb_sum, label => c_lbl_sum));
+
+  v_stat_styles t_stat_styles; -- кэш стилей (заполняется в начале main)
+
+  ---------------------------------------------------------------------------
+  -- Выгрузка блока данных (5 строк: «все» + 4 строки статистики) в лист.
+  -- Инкапсулирует типовой набор query2sheet со стандартными смещениями.
   ---------------------------------------------------------------------------
   procedure dump_block(p_sheet in integer, p_sdv_col in pls_integer) is
   begin
@@ -611,11 +591,59 @@ procedure create_sklod_report(pmaxdate in date default trunc(sysdate) - 1) is
                          p_sdvig_col      => p_sdv_col);
   end dump_block;
 
+  ---------------------------------------------------------------------------
+  -- Оформление строк статистики блока ИТОГО: цветная строка + подпись в col 3.
+  -- В исходнике это было 4× скопировано подряд (set_row следующей строки,
+  -- затем подпись текущей). Порядок вызовов сохранен дословно:
+  --   стиль(i+1) -> выгрузка min -> подпись «Минимум» -> стиль(2)... и т.д.
+  -- Стили (fill/font/border) берутся из кэша v_stat_styles — get_* вызывается
+  -- один раз на весь прогон, а не при каждой перекраске.
+  ---------------------------------------------------------------------------
+  procedure paint_total_stats(p_sheet in integer, p_step in pls_integer) is
+    v_base pls_integer := c_header_rows + sdv_row_global + 4 * (i - 1);
+  begin
+    as_xlsx.set_row(p_sheet    => p_sheet,
+                    p_row      => v_base + p_step,
+                    p_fillId   => v_stat_styles(p_step).fill_id,
+                    p_fontId   => v_stat_styles(p_step).font_id,
+                    p_borderId => v_stat_styles(p_step).border_id);
+    if p_step > 1 then
+      -- подпись предыдущей статистики (как в оригинале: после query2sheet)
+      as_xlsx.cell(p_col    => c_first_data_col,
+                   p_row    => v_base + p_step - 1,
+                   p_sheet  => p_sheet,
+                   p_value  => v_stat_styles(p_step - 1).label,
+                   p_fillId => v_stat_styles(p_step - 1).fill_id);
+    end if;
+  end paint_total_stats;
+
+  -- Последняя подпись («Сумма») — ставится после выгрузки ssql_sum
+  procedure label_total_sum(p_sheet in integer) is
+    v_base pls_integer := c_header_rows + sdv_row_global + 4 * (i - 1);
+  begin
+    as_xlsx.cell(p_col    => c_first_data_col,
+                 p_row    => v_base + 4,
+                 p_sheet  => p_sheet,
+                 p_value  => v_stat_styles(4).label,
+                 p_fillId => v_stat_styles(4).fill_id);
+  end label_total_sum;
+
 begin
   execute immediate 'alter session set nls_language=RUSSIAN';
   execute immediate 'alter session set nls_territory=CIS';
   execute immediate 'alter session set NLS_NUMERIC_CHARACTERS=".,"';
   as_xlsx.clear_workbook;
+
+  -- Кэш стилей/рамки: get_fill/get_font/get_border возвращают id настройки из
+  -- реестра as_xlsx — достаточно вычислить их один раз на прогон.
+  for st in 1 .. 4 loop
+    v_stat_styles(st).rgb       := c_stat_styles(st).rgb;
+    v_stat_styles(st).label     := c_stat_styles(st).label;
+    v_stat_styles(st).fill_id   := as_xlsx.get_fill('solid', p_fgRGB => c_stat_styles(st).rgb);
+    v_stat_styles(st).font_id   := as_xlsx.get_font(c_font_stat, p_fontsize => c_fs_hdr,
+                                                    p_bold => TRUE);
+    v_stat_styles(st).border_id := as_xlsx.get_border();
+  end loop;
   --добавляем листы
   as_xlsx.new_sheet(c_sheet_name, (r_max_lm + c_header_rows + (i_max - 2) * c_stats_rows));
 -------------------------------------------------------------------------------------------------------------------------
@@ -913,76 +941,42 @@ left join (select t_date,sum(nvl(pallet,0)) pallet  from dwh.oracle_sklod_nz whe
                         '"sssum'|| cy || '"', '"sssum'|| py || '"',
                         'nz');
 
-        --все
+        -- Выгрузка и оформление в том же порядке вызовов, что в оригинале:
+        -- «все» -> стиль(1) -> мин -> подпись(1)+стиль(2) -> средн -> ... -> сумма -> подпись(4)
         as_xlsx.query2sheet(p_sql            => ssql_all,
                             p_sheet          => l,
                             p_column_headers => FALSE,
                             p_sdvig_row      => c_header_rows + 4 * (i - 1) + (sdv_row_global - sdv_row),
                             p_sdvig_col      => c_first_data_col);
-        as_xlsx.set_row(p_sheet    => l,
-                        p_row      => c_header_rows + sdv_row_global + 4 * (i - 1) + 1,
-                        p_fillId   => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_all),
-                        p_fontId   => as_xlsx.get_font(c_font_stat, p_fontsize => c_fs_hdr, p_bold => TRUE),
-                        p_borderId => as_xlsx.get_border());
+        paint_total_stats(l, 1);
         --мин
         as_xlsx.query2sheet(p_sql            => ssql_min,
                             p_sheet          => l,
                             p_column_headers => FALSE,
                             p_sdvig_row      => c_header_rows + sdv_row_global + 4 * (i - 1),
                             p_sdvig_col      => c_first_data_col);
-        as_xlsx.cell(p_col    => c_first_data_col,
-                     p_row    => c_header_rows + sdv_row_global + 4 * (i - 1) + 1,
-                     p_sheet  => l,
-                     p_value  => c_lbl_min,
-                     p_fillId => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_all));
-        as_xlsx.set_row(p_sheet    => l,
-                        p_row      => c_header_rows + sdv_row_global + 4 * (i - 1) + 2,
-                        p_fillId   => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_avg),
-                        p_fontId   => as_xlsx.get_font(c_font_stat, p_fontsize => c_fs_hdr, p_bold => TRUE),
-                        p_borderId => as_xlsx.get_border());
+        paint_total_stats(l, 2);
         --средн
         as_xlsx.query2sheet(p_sql            => ssql_avg,
                             p_sheet          => l,
                             p_column_headers => FALSE,
                             p_sdvig_row      => c_header_rows + sdv_row_global + 4 * (i - 1) + 1,
                             p_sdvig_col      => c_first_data_col);
-        as_xlsx.cell(p_col    => c_first_data_col,
-                     p_row    => c_header_rows + sdv_row_global + 4 * (i - 1) + 2,
-                     p_sheet  => l,
-                     p_value  => c_lbl_avg,
-                     p_fillId => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_avg));
-        as_xlsx.set_row(p_sheet    => l,
-                        p_row      => c_header_rows + sdv_row_global + 4 * (i - 1) + 3,
-                        p_fillId   => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_max),
-                        p_fontId   => as_xlsx.get_font(c_font_stat, p_fontsize => c_fs_hdr, p_bold => TRUE),
-                        p_borderId => as_xlsx.get_border());
+        paint_total_stats(l, 3);
         --макс
         as_xlsx.query2sheet(p_sql            => ssql_max,
                             p_sheet          => l,
                             p_column_headers => FALSE,
                             p_sdvig_row      => c_header_rows + sdv_row_global + 4 * (i - 1) + 2,
                             p_sdvig_col      => c_first_data_col);
-        as_xlsx.cell(p_col    => c_first_data_col,
-                     p_row    => c_header_rows + sdv_row_global + 4 * (i - 1) + 3,
-                     p_sheet  => l,
-                     p_value  => c_lbl_max,
-                     p_fillId => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_max));
-        as_xlsx.set_row(p_sheet    => l,
-                        p_row      => c_header_rows + sdv_row_global + 4 * (i - 1) + 4,
-                        p_fillId   => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_sum),
-                        p_fontId   => as_xlsx.get_font(c_font_stat, p_fontsize => c_fs_hdr, p_bold => TRUE),
-                        p_borderId => as_xlsx.get_border());
+        paint_total_stats(l, 4);
         --сумма
         as_xlsx.query2sheet(p_sql            => ssql_sum,
                             p_sheet          => l,
                             p_column_headers => FALSE,
                             p_sdvig_row      => c_header_rows + sdv_row_global + 4 * (i - 1) + 3,
                             p_sdvig_col      => c_first_data_col);
-        as_xlsx.cell(p_col    => c_first_data_col,
-                     p_row    => c_header_rows + sdv_row_global + 4 * (i - 1) + 4,
-                     p_sheet  => l,
-                     p_value  => c_lbl_sum,
-                     p_fillId => as_xlsx.get_fill('solid', p_fgRGB => c_rgb_sum));
+        label_total_sum(l);
 
 ----------------------------------------------------------------------------------------------
         --ИТОГИ РЦ ТЭЦ (блок 2: РЦ Екатеринбург + Березовский)
